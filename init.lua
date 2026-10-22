@@ -699,7 +699,68 @@ do
     clangd = {},
     gopls = {},
     pyright = {},
-    rust_analyzer = {},
+    rust_analyzer = {
+      root_dir = function(bufnr, on_dir)
+        local fname = vim.api.nvim_buf_get_name(bufnr)
+        local cargo_crate_dir = vim.fs.root(fname, { 'Cargo.toml' })
+        if cargo_crate_dir == nil then
+          local json_root = vim.fs.root(fname, { 'rust-project.json' })
+          if json_root then
+            on_dir(json_root)
+            return
+          end
+
+          -- Only fall back to .git if the git root actually contains a Cargo.toml
+          local git_file = vim.fs.find('.git', { path = fname, upward = true })[1]
+          if git_file then
+            local git_root = vim.fs.dirname(git_file)
+            if vim.uv.fs_stat(git_root .. '/Cargo.toml') then
+              on_dir(git_root)
+              return
+            end
+          end
+
+          -- Fallback for standalone files / non-cargo directories
+          on_dir(vim.fs.dirname(fname))
+          return
+        end
+
+        local cmd = {
+          'cargo',
+          'metadata',
+          '--no-deps',
+          '--format-version',
+          '1',
+          '--manifest-path',
+          cargo_crate_dir .. '/Cargo.toml',
+        }
+
+        vim.system(cmd, { text = true }, function(output)
+          if output.code == 0 and output.stdout then
+            local ok, result = pcall(vim.json.decode, output.stdout)
+            if ok and result and result['workspace_root'] then
+              on_dir(vim.fs.normalize(result['workspace_root']))
+              return
+            end
+          end
+          on_dir(cargo_crate_dir)
+        end)
+      end,
+      settings = {
+        ['rust-analyzer'] = {
+          checkOnSave = true,
+          check = {
+            command = 'clippy',
+          },
+          cargo = {
+            allFeatures = true,
+          },
+          procMacro = {
+            enable = true,
+          },
+        },
+      },
+    },
     --
     -- Some languages (like typescript) have entire language plugins that can be useful:
     --    https://github.com/pmizio/typescript-tools.nvim
@@ -710,8 +771,6 @@ do
 
     -- Emmet-snippet supports
     emmet_language_server = {},
-
-    stylua = {}, -- Used to format Lua code
 
     -- Special Lua Config, as recommended by neovim help docs
     lua_ls = {
@@ -770,7 +829,7 @@ do
   -- You can press `g?` for help in this menu.
   local ensure_installed = vim.tbl_keys(servers or {})
   vim.list_extend(ensure_installed, {
-    -- You can add other tools here that you want Mason to install
+    'stylua', -- Used to format Lua code (installed via Mason, formatted via conform.nvim)
   })
 
   require('mason-tool-installer').setup { ensure_installed = ensure_installed }
@@ -901,6 +960,11 @@ do
     -- Shows a signature help window while you type arguments for a function
     signature = { enabled = true },
   }
+
+  -- Inject blink capabilities into all LSP configs
+  vim.lsp.config('*', {
+    capabilities = require('blink.cmp').get_lsp_capabilities(),
+  })
 end
 
 -- ============================================================
