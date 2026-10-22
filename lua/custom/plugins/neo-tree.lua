@@ -9,3 +9,5 @@ vim.pack.add({
   -- optional, but recommended
   "https://github.com/nvim-tree/nvim-web-devicons",
 })
+
+vim.keymap.set("n", "<leader>e", "<Cmd>Neotree reveal=true toggle=true<CR>", { desc = "Toggle Neo-tree" })
